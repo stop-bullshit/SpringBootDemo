@@ -1,7 +1,9 @@
 package cn.luckyh.bootdemo.service;
 
 import cn.luckyh.bootdemo.mapper.PersonMapper;
+import cn.luckyh.bootdemo.model.dto.PersonDTO;
 import cn.luckyh.bootdemo.model.entity.Person;
+import com.google.common.collect.Lists;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -9,7 +11,10 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StopWatch;
 
-import java.util.concurrent.CompletableFuture;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -21,8 +26,9 @@ public class PersonService {
     @Resource
     private PersonMapper personMapper;
 
+
     @Resource
-    private ThreadPoolTaskExecutor threadPoolTaskExecutor;
+    private ThreadPoolTaskExecutor asyncExecutorBase;
 
     @Async
 //    @Transactional
@@ -110,7 +116,7 @@ public class PersonService {
         // 模拟需要批量处理的更新操作
         for (int i = 0; i < num; i++) {
             final int taskId = i;
-            threadPoolTaskExecutor.submit(() -> {
+            asyncExecutorBase.submit(() -> {
                 // 执行更新操作，这里是示例代码
                 System.out.println("Updating task: " + taskId + " in thread: " + Thread.currentThread().getName());
             });
@@ -119,6 +125,109 @@ public class PersonService {
         long totalTimeMillis = stopWatch.getTotalTimeMillis();
         System.out.println("执行时间：" + totalTimeMillis + " 毫秒");
         // 关闭线程池
-        threadPoolTaskExecutor.shutdown();
+        asyncExecutorBase.shutdown();
+    }
+
+
+    public void threadTst2(Integer num) {
+        log.info("入参:{}", num);
+        List<PersonDTO> personList = generateRandomPersonList(num, 20, 50);
+        CopyOnWriteArrayList<PersonDTO> saveList = new CopyOnWriteArrayList<>();
+        CopyOnWriteArrayList<PersonDTO> updateList = new CopyOnWriteArrayList<>();
+
+        asyncProcessList(personList, saveList, updateList);
+
+//        System.out.println(saveList.size());
+    }
+
+    public void asyncProcessList(List<PersonDTO> voList, CopyOnWriteArrayList<PersonDTO> saveList, CopyOnWriteArrayList<PersonDTO> updateList) {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start("异步执行");
+        List<List<PersonDTO>> partitionList = Lists.partition(voList, 1000);
+        CountDownLatch countDownLatch = new CountDownLatch(voList.size());
+        partitionList.forEach(personDTOS -> {
+            personDTOS.forEach(dto -> {
+                asyncExecutorBase.submit(() -> {
+                    processTaskDetail(dto, saveList, updateList, countDownLatch);
+                });
+//                processTaskDetail(dto, saveList, updateList, countDownLatch);
+            });
+//            System.out.println("【数据核销】任务{}执行结束,剩余" + countDownLatch.getCount());
+        });
+
+        try {
+            countDownLatch.await();
+            stopWatch.stop();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+//        throw new RuntimeException("测试异常");
+        // StopWatch stopWatch = new StopWatch();
+        // stopWatch.start("asyncProcessList");
+//        List<CompletableFuture<Void>> futures = new ArrayList<>();
+//
+//        for (List<PersonDTO> simpleWaybillQueryVos : Lists.partition(voList, 2000)) {
+//            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
+//                simpleWaybillQueryVos.forEach(waybillQueryVo -> {
+//
+//                    processTaskDetail(waybillQueryVo, saveList, updateList, countDownLatch);
+//                });
+//            }, asyncExecutorBase);
+//
+//            futures.add(future);
+//        }
+//
+//        CompletableFuture<Void> allOf = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+//        allOf.join(); // 等待所有任务完成
+        stopWatch.stop();
+//        log.info("【数据核销】异步执行结束耗时: {} 毫秒", stopWatch.getTotalTimeMillis());
+
+        stopWatch.start("for执行");
+
+        voList.forEach(dto -> {
+            processTaskDetail(dto, saveList, updateList, countDownLatch);
+        });
+
+        stopWatch.stop();
+        System.out.println(stopWatch.prettyPrint());
+    }
+
+
+    public List<PersonDTO> generateRandomPersonList(int count, int minAge, int maxAge) {
+        return ThreadLocalRandom.current()
+                .ints(count, minAge, maxAge + 1)
+                .mapToObj(age -> new PersonDTO("name" + age, age))
+                .collect(Collectors.toList());
+    }
+
+    public void processTaskDetail(PersonDTO waybillQueryVo, CopyOnWriteArrayList<PersonDTO> saveList, CopyOnWriteArrayList<PersonDTO> updateList, CountDownLatch countDownLatch) {
+        // StopWatch tStopWatch = new StopWatch();
+        // tStopWatch.start(waybillQueryVo.getDeclarationWaybillId());
+        try {
+            // 判断需要保存还是更新
+            checkUpdateOrSave(waybillQueryVo, saveList, updateList);
+        } catch (Exception e) {
+            // 异常处理逻辑
+            log.error("【数据核销】处理清关状态数据时异常 消息数据{},异常信息: {}", waybillQueryVo, e.getStackTrace());
+            throw e;
+        } finally {
+            countDownLatch.countDown();
+//            System.out.println("【数据核销】任务{}执行结束,剩余" + countDownLatch.getCount());
+//         tStopWatch.stop();
+//         log.info("【数据核销】任务{}耗时: {} 毫秒", tStopWatch.getLastTaskName(), tStopWatch.getTotalTimeMillis());
+        }
+    }
+
+    private void checkUpdateOrSave(PersonDTO waybillQueryVo, CopyOnWriteArrayList<PersonDTO> saveList, CopyOnWriteArrayList<PersonDTO> updateList) {
+        // 保存到新增数据List
+        waybillQueryVo.setName(waybillQueryVo.getName() + "new");
+//        log.info("【数据核销】当前数据需要保存:{}", waybillQueryVo);
+        saveList.add(waybillQueryVo);
+        updateList.add(waybillQueryVo);
+//        if (waybillQueryVo.getAge() > 30) {
+        // 保存到更新数据List
+//            throw new RuntimeException("测试异常");
+//        }
+
     }
 }

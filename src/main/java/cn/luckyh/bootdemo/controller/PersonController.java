@@ -54,4 +54,10 @@ public class PersonController {
         list.forEach(System.out::println);
         System.out.println(dto.getReason());
     }
+
+
+    @PostMapping(value = "/threadTst2")
+    public void threadTst2(Integer num) {
+        personService.threadTst2(num);
+    }
 }
