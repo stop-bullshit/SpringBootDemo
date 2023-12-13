@@ -60,4 +60,9 @@ public class PersonController {
     public void threadTst2(Integer num) {
         personService.threadTst2(num);
     }
+
+    @PostMapping(value = "/threadTst3")
+    public void threadTst3(Integer num) {
+        personService.threadTst3(num);
+    }
 }

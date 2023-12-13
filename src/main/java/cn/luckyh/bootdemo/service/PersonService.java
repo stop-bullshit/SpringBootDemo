@@ -11,9 +11,9 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StopWatch;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -131,7 +131,7 @@ public class PersonService {
 
     public void threadTst2(Integer num) {
         log.info("入参:{}", num);
-        List<PersonDTO> personList = generateRandomPersonList(num, 20, 50);
+        List<PersonDTO> personList = generateRandomPersonList(num, 10, 80);
         CopyOnWriteArrayList<PersonDTO> saveList = new CopyOnWriteArrayList<>();
         CopyOnWriteArrayList<PersonDTO> updateList = new CopyOnWriteArrayList<>();
 
@@ -142,13 +142,14 @@ public class PersonService {
 
     public void asyncProcessList(List<PersonDTO> voList, CopyOnWriteArrayList<PersonDTO> saveList, CopyOnWriteArrayList<PersonDTO> updateList) {
         StopWatch stopWatch = new StopWatch();
-        stopWatch.start("异步执行");
+        stopWatch.start("async-partitionList-for");
         List<List<PersonDTO>> partitionList = Lists.partition(voList, 1000);
         CountDownLatch countDownLatch = new CountDownLatch(voList.size());
+        AtomicInteger integer = new AtomicInteger(0);
         partitionList.forEach(personDTOS -> {
             personDTOS.forEach(dto -> {
                 asyncExecutorBase.submit(() -> {
-                    processTaskDetail(dto, saveList, updateList, countDownLatch);
+                    processTaskDetail(dto, saveList, updateList, countDownLatch, integer);
                 });
 //                processTaskDetail(dto, saveList, updateList, countDownLatch);
             });
@@ -157,9 +158,12 @@ public class PersonService {
 
         try {
             countDownLatch.await();
+
             stopWatch.stop();
+
+            log.info("【数据核销】总数: {} ", integer.get());
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            log.error("【数据核销】CountDownLatch等待任务异常，ExceptionName: {} Error: {}");
         }
 //        throw new RuntimeException("测试异常");
         // StopWatch stopWatch = new StopWatch();
@@ -179,15 +183,34 @@ public class PersonService {
 //
 //        CompletableFuture<Void> allOf = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
 //        allOf.join(); // 等待所有任务完成
-        stopWatch.stop();
+//        stopWatch.stop();
 //        log.info("【数据核销】异步执行结束耗时: {} 毫秒", stopWatch.getTotalTimeMillis());
+        CountDownLatch latch = new CountDownLatch(voList.size());
+        AtomicInteger asyncForInteger = new AtomicInteger(0);
+        stopWatch.start("async-for");
+        voList.forEach(
+                dto -> {
+                    asyncExecutorBase.submit(() -> {
+                        processTaskDetail(dto, saveList, updateList, latch, asyncForInteger);
+//                processTaskDetail(dto, saveList, updateList, countDownLatch);
+                    });
+//            System.out.println("【数据核销】任务{}执行结束,剩余" + countDownLatch.getCount());
+                });
+
+        try {
+            latch.await();
+            log.info("【数据核销】总数: {} ", asyncForInteger.get());
+            stopWatch.stop();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
 
         stopWatch.start("for执行");
-
+        AtomicInteger forInteger = new AtomicInteger(0);
         voList.forEach(dto -> {
-            processTaskDetail(dto, saveList, updateList, countDownLatch);
+            processTaskDetail(dto, saveList, updateList, latch, forInteger);
         });
-
+        log.info("【数据核销】总数: {} ", forInteger.get());
         stopWatch.stop();
         System.out.println(stopWatch.prettyPrint());
     }
@@ -200,7 +223,7 @@ public class PersonService {
                 .collect(Collectors.toList());
     }
 
-    public void processTaskDetail(PersonDTO waybillQueryVo, CopyOnWriteArrayList<PersonDTO> saveList, CopyOnWriteArrayList<PersonDTO> updateList, CountDownLatch countDownLatch) {
+    public void processTaskDetail(PersonDTO waybillQueryVo, CopyOnWriteArrayList<PersonDTO> saveList, CopyOnWriteArrayList<PersonDTO> updateList, CountDownLatch countDownLatch, AtomicInteger integer) {
         // StopWatch tStopWatch = new StopWatch();
         // tStopWatch.start(waybillQueryVo.getDeclarationWaybillId());
         try {
@@ -208,9 +231,10 @@ public class PersonService {
             checkUpdateOrSave(waybillQueryVo, saveList, updateList);
         } catch (Exception e) {
             // 异常处理逻辑
-            log.error("【数据核销】处理清关状态数据时异常 消息数据{},异常信息: {}", waybillQueryVo, e.getStackTrace());
-            throw e;
+//            log.error("【数据核销】异步处理清关状态数据时异常 消息数据{}", waybillQueryVo);
+            integer.incrementAndGet();
         } finally {
+            integer.incrementAndGet();
             countDownLatch.countDown();
 //            System.out.println("【数据核销】任务{}执行结束,剩余" + countDownLatch.getCount());
 //         tStopWatch.stop();
@@ -225,9 +249,25 @@ public class PersonService {
         saveList.add(waybillQueryVo);
         updateList.add(waybillQueryVo);
 //        if (waybillQueryVo.getAge() > 30) {
-        // 保存到更新数据List
+//         保存到更新数据List
 //            throw new RuntimeException("测试异常");
 //        }
 
+    }
+
+    public void threadTst3(Integer num) {
+        log.info("入参:{}", num);
+        List<PersonDTO> personList = generateRandomPersonList(num, 10, 80);
+        personList.forEach(personDTO -> {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                    log.info("future: {}", personDTO);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }, asyncExecutorBase);
+        });
+        personList.forEach(personDTO -> System.out.println("打印信息:{}" + personDTO));
     }
 }
