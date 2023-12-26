@@ -1,19 +1,19 @@
 package cn.luckyh.bootdemo.controller;
 
+import cn.luckyh.bootdemo.annotations.CustomParam;
+import cn.luckyh.bootdemo.model.dto.PersonDTO;
 import cn.luckyh.bootdemo.model.dto.PersonUploadDto;
 import cn.luckyh.bootdemo.service.PersonService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.Assert;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -62,7 +62,37 @@ public class PersonController {
     }
 
     @PostMapping(value = "/threadTst3")
-    public void threadTst3(Integer num) {
-        personService.threadTst3(num);
+    public Integer threadTst3(@RequestParam Integer num) {
+        System.out.println(num);
+        return num;
+//        personService.threadTst3(num);
+    }
+
+    @PostMapping(value = "/threadTst4")
+    public Integer threadTst4(@RequestParam(value = "num", name = "num") Integer num) {
+        System.out.println(num);
+        return num;
+//        personService.threadTst3(num);
+    }
+
+    @PostMapping(value = "/threadTst5")
+    public String threadTst5(@RequestBody Map num) {
+        System.out.println(num);
+        return String.valueOf(num);
+    }
+
+    @PostMapping(value = "/threadTst6")
+    public String threadTst6(@RequestBody PersonDTO dto) {
+        System.out.println(dto.getName());
+        return dto.getName();
+//        personService.threadTst3(num);
+    }
+
+    @PostMapping(value = "/threadTst7")
+    public Integer threadTst7(@CustomParam(value = "num") Integer num,@CustomParam(value = "age") Integer age) {
+        System.out.println(num);
+        System.out.println(age);
+        return num;
+//        personService.threadTst3(num);
     }
 }
